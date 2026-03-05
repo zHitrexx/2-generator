@@ -12,14 +12,19 @@
 #define CH1 PORTK
 #define CH2 PORTF
 
+uint8_t values[4][256];
 const uint8_t max_amp = 204;
-uint8_t values[4][max_amp];
-volatile uint8_t step_ch1 = 0;
-volatile uint8_t step_ch2 = 0;
+const uint32_t word_hz = 214748 / 2;
+volatile uint32_t phase_ch1 = 0;
+volatile uint32_t phase_ch2 = 0;
+volatile uint32_t word_ch1 = word_hz * 300; // 143165 = 1 Hz -> 143165 * freq
+volatile uint32_t word_ch2 = word_hz * 200;
+volatile uint8_t index_ch1 = 0;
+volatile uint8_t index_ch2 = 0;
+volatile uint8_t* table1 = values[3];
+volatile uint8_t* table2 = values[2];
 float amp = 4000;
-uint8_t amp_dac = 0;
-float freq1 = 600;
-float freq2 = 600;
+uint8_t amp_dac = amp * 51 / 1000;
 
 //-------Setup-------
 
@@ -29,35 +34,27 @@ void Setup()
   DDRCH2 = 0xFF;   // Nastavení PORTK na výstupní - CH2
   CH1 = 0x00;  // Nastavení log. 0 na celý PORTB
   CH2 = 0x00;  // Nastavení log. 0 na celý PORTK
-  amp_dac = Amp(amp);
 }
 void SetupTimer()
 {
  TCCR1A = 0; // Ohlídání WGM10 a WGM11 LOW a zároveň COM1Xn v LOW (hw piny)
  TCCR1B = (1 << WGM12) | (1 << CS10); // Nastavení TIMER1 na CTC a Prescaler na 1
- OCR1A = 16000000 / (100.0 * 2.04 * freq1) - 1; // Nastavení na (147456MHz / 10 000 Hz - 1 = ?
+ OCR1A = 16000000 / (40000) - 1; // Nastavení na (147456MHz / 10 000 Hz - 1 = ?
  TIMSK1 = (1 << OCIE1A); // Povolit přerušení pri shodě s TCNT1 a OCR1A
-
- TCCR3A = 0;
- TCCR3B = (1 << WGM32) | (1 << CS30);
- OCR3A = 16000000 / (100.0 * 2.04 * freq2) - 1;
- TIMSK3 = (1 << OCIE3A);//ETIMSK = (1 << OCIE3A);
 }
 
 ISR(TIMER1_COMPA_vect) // Přerušení vyvolané TIMER1
 {
-  CH1 = values[0][step_ch1];
-  step_ch1++;
-  if (step_ch1 >= max_amp)
-	  step_ch1 = 0;
+ phase_ch1 += word_ch1;
+ phase_ch2 += word_ch2;
+ 
+ index_ch1 = phase_ch1 >> 24;
+ index_ch2 = phase_ch2 >> 24;
+
+ CH1 = table1[index_ch1];
+ CH2 = table2[index_ch2];
 }
-ISR(TIMER3_COMPA_vect) // Přerušení vyvolané TIMER3
-{
-  CH2 = values[2][step_ch2];
-  step_ch2++;
-  if (step_ch2 >= max_amp)
-	  step_ch2 = 0;
-}
+
 uint8_t Amp(int amp)
 {
   if ((float)(amp) / 1000.0 > (float)max_amp / 51.0)   // 4500 [mV] / 1000 -> 4.5[V] > 4V
@@ -75,28 +72,28 @@ float Period(float freq)
 
 void SetupValues()
 {
-  for (uint8_t i = 0; i < max_amp; i++)  // SQR
+  for (uint16_t i = 0; i < 256; i++)  // SQR
   {
     if (i < 102)
       values[0][i] = amp_dac;
     else
       values[0][i] = 0; 
   }
-  for (uint8_t i = 0; i < max_amp; i++) // SAW
+  for (uint16_t i = 0; i < 256; i++) // SAW
   {
-    values[1][i] = i;
+    values[1][i] = (i * amp_dac) / 256;
   }
-  for (uint8_t i = 0; i <= max_amp / 2; i++) // TRI
+  for (uint16_t i = 0; i <= 256 / 2; i++) // TRI
   {
-	values[2][i] = i * 2;
+	values[2][i] = (i * 2) * amp_dac / 256;
   }
-  for (uint8_t i = max_amp / 2; i < max_amp; i++)
+  for (uint16_t i = 256 / 2; i < 256; i++)
   {
-	values[2][i] = values[2][max_amp - i];
+	values[2][i] = values[2][256 - i];
   }
-  for (uint8_t i = 0; i < max_amp; i++)  // SIN
+  for (uint16_t i = 0; i < 256; i++)  // SIN
   {
-    float angle = 6.28318531 * ((float)i / amp_dac);
+    float angle = 6.28318531 * ((float)i / 256.0);
     values[3][i] = round((float)amp_dac / 2.0 * sin(angle) + (float)amp_dac / 2.0);
   }
 }
