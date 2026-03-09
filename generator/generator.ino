@@ -5,13 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "src/BitOps.h"
 #include "src/usart.h"
 
 #define DDRCH1 DDRK
-#define DDRCH2 DDRF
+#define DDRCH2 DDRB // DDRB
 #define CH1 PORTK
-#define CH2 PORTF
+#define CH2 PORTB // PORTB
 
 uint8_t values1[4][256];
 uint8_t values2[4][256];
@@ -101,6 +100,19 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
   char *str_amp  = strtok(NULL, ":");
   char *str_freq = strtok(NULL, ":");
 
+  if (strcmp(channel, "HELP") == 0)
+  {
+    if (strcmp(wave, "channel") == 0)
+      printf("CH1, CH2\r\n");
+    if (strcmp(wave, "wave") == 0)
+      printf("SQR, SAW, TRI, SIN\r\n");
+    if (strcmp(wave, "mV") == 0)
+      printf("0-4000\r\n");
+    if (strcmp(wave, "Hz") == 0)
+      printf("0-5000\r\n");
+    return;
+  }
+
   if (channel == NULL || wave == NULL || str_amp == NULL || str_freq == NULL)
 	return;
   
@@ -118,7 +130,7 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
     wave_index = 3;
   else
   {
-	printf("Spatny druh vlny!");
+	printf("Spatny druh vlny! Zkus HELP\r\n");
   	return;
   }
 
@@ -134,7 +146,7 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
   }
   else
   {
-    printf("Spatny kanal!");
+    printf("Spatny kanal! Zkus HELP\r\n");
   }
 }
 
@@ -147,7 +159,7 @@ int main()
   sei();
   char znak;
 
-  printf("Zadej prikaz ve formatu: channel:druh vlny:mV:Hz!\r\n");
+  printf("Zadej prikaz ve formatu: channel:wave:mV:Hz nebo HELP:parametr!\r\n");
 
   while(1)
   {
