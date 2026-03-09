@@ -5,13 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "src/BitOps.h" // vložit src do Dokumenty -> Arduiono -> sketch složka -> src -> BitOps.h a .c
 #include "src/usart.h"
 
 #define DDRCH1 DDRK
-#define DDRCH2 DDRF
+#define DDRCH2 DDRB // DDRB
 #define CH1 PORTK
-#define CH2 PORTF
+#define CH2 PORTB // PORTB
 
 uint8_t values1[4][256];
 uint8_t values2[4][256];
@@ -32,7 +31,7 @@ void Setup(void)
 {
   DDRCH1 = 0xFF;   // CH1 výstup
   DDRCH2 = 0xFF;   // CH2 výstup
-  usart_setup(9600, bits8, parityNone, stop1); // V putty? nastavit stejné parametry
+  usart_setup(9600, bits8, parityNone, stop1);
 }
 
 //-------Timer-------
@@ -51,7 +50,7 @@ ISR(TIMER1_COMPA_vect)
 {
  phase_ch1 += word_ch1;
  phase_ch2 += word_ch2;
-
+ 
  CH1 = table1[phase_ch1 >> 24];
  CH2 = table2[phase_ch2 >> 24];
 }
@@ -62,7 +61,7 @@ uint8_t Amp(float amp)
     amp = (float)max_amp * 1000.0 / 51.0;
   else if (amp < 0)
     amp = 0;
- 
+
   return (float)amp / 1000.0 * 51.0;
 }
 
@@ -79,10 +78,10 @@ void UpdateTable(uint8_t (*values)[256], uint8_t amp, uint32_t *word_ch, float f
       values[0][i] = amp;
     else
       values[0][i] = 0; 
-
+			
 	// SAW
 	values[1][i] = (i * amp) / 255;
-
+	
 	// TRI
 	if (i < 128) 
 	  values[2][i] = (i * amp) / 127;
@@ -101,12 +100,25 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
   char *str_amp  = strtok(NULL, ":");
   char *str_freq = strtok(NULL, ":");
 
+  if (strcmp(channel, "HELP") == 0)
+  {
+    if (strcmp(wave, "channel") == 0)
+      printf("CH1, CH2\r\n");
+    if (strcmp(wave, "wave") == 0)
+      printf("SQR, SAW, TRI, SIN\r\n");
+    if (strcmp(wave, "mV") == 0)
+      printf("0-4000\r\n");
+    if (strcmp(wave, "Hz") == 0)
+      printf("0-5000\r\n");
+    return;
+  }
+
   if (channel == NULL || wave == NULL || str_amp == NULL || str_freq == NULL)
 	return;
   
   float amp = atoi(str_amp); // Převod na číslo
   float freq = atoi(str_freq);
-  
+
   uint8_t wave_index = 0;
   if (strcmp(wave, "SQR") == 0)
     wave_index = 0;
@@ -118,11 +130,11 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
     wave_index = 3;
   else
   {
-	  printf("Spatny druh vlny!");
+	printf("Spatny druh vlny! Zkus HELP\r\n");
   	return;
   }
-  
-  if (strcmp(channel, "CH1") == 0)
+
+  if (strcmp(channel, "CH1") == 0) // Úprava hodnot v tabulkách podle kanálu 
   {
     UpdateTable(values1, Amp(amp), &word_ch1, freq);
     table1 = values1[wave_index];
@@ -134,7 +146,7 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
   }
   else
   {
-    printf("Spatny kanal!");
+    printf("Spatny kanal! Zkus HELP\r\n");
   }
 }
 
@@ -147,31 +159,30 @@ int main()
   sei();
   char znak;
 
-  printf("Zadej prikaz ve formatu: channel:druh vlny:mV:Hz!\r\n");
+  printf("Zadej prikaz ve formatu: channel:wave:mV:Hz nebo HELP:parametr!\r\n");
 
   while(1)
   {
-	  if (usart_dataready())
+	if (usart_dataready())
+	{
+	  znak = usart_getchar();
+	  if (znak == '\r' || znak == '\n')
 	  {
-	    znak = usart_getchar();
-	    if (znak == '\r' || znak == '\n')
-	    {
-	      if (index == 0)
-		      continue;
-			
+	    if (index == 0)
+		  continue;
         string[index] = '\0';
         ProcessUSART();
-        index = 0;
-	    }
-	    else
-	    {
-	      if (index < 19)
-		    {
-		      string[index] = znak;
-		      index++;
-	      }
+		index = 0;
+	  }
+	  else
+	  {
+	    if (index < 19)
+		{
+		  string[index] = znak;
+		  index++;
 	    }
 	  }
+	}
   }
   return 0;
 }
