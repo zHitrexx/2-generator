@@ -1,10 +1,10 @@
-#define F_CPU 16000000UL //14745600UL
+#define F_CPU 16000000UL
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include <math.h>
-#include "src/BitOps.h" // vložit src do Dokumenty -> Arduiono -> sketch složka -> src -> BitOps.h a .c
 #include "src/usart.h"
 
 #define DDRCH1 DDRK
@@ -12,119 +12,176 @@
 #define CH1 PORTK
 #define CH2 PORTF
 
-const uint8_t max_amp = 204;
-uint8_t values[4][max_amp];
-volatile uint8_t step_ch1 = 0;
-volatile uint8_t step_ch2 = 0;
-float amp = 4000;
-uint8_t amp_dac = 0;
-float freq1 = 600;
-float freq2 = 600;
+uint8_t values1[4][256];
+uint8_t values2[4][256];
+char string[20];
+uint8_t index = 0;
+const float max_amp = 4000;
+const float word_hz = 65536.0 / 40000.0; // 1 Hz
+volatile uint16_t phase_ch1 = 0;
+volatile uint16_t phase_ch2 = 0;
+uint16_t word_ch1 = 0;
+uint16_t word_ch2 = 0;
+uint8_t* table1 = values1[0];
+uint8_t* table2 = values2[3];
 
 //-------Setup-------
 
-void Setup()
+void Setup(void)
 {
-  DDRCH1 = 0xFF;   // Nastavení PORTB na výstupní - CH1
-  DDRCH2 = 0xFF;   // Nastavení PORTK na výstupní - CH2
-  CH1 = 0x00;  // Nastavení log. 0 na celý PORTB
-  CH2 = 0x00;  // Nastavení log. 0 na celý PORTK
-  amp_dac = Amp(amp);
-}
-void SetupTimer()
-{
- TCCR1A = 0; // Ohlídání WGM10 a WGM11 LOW a zároveň COM1Xn v LOW (hw piny)
- TCCR1B = (1 << WGM12) | (1 << CS10); // Nastavení TIMER1 na CTC a Prescaler na 1
- OCR1A = 16000000 / (100.0 * 2.04 * freq1) - 1; // Nastavení na (147456MHz / 10 000 Hz - 1 = ?
- TIMSK1 = (1 << OCIE1A); // Povolit přerušení pri shodě s TCNT1 a OCR1A
-
- TCCR3A = 0;
- TCCR3B = (1 << WGM32) | (1 << CS30);
- OCR3A = 16000000 / (100.0 * 2.04 * freq2) - 1;
- TIMSK3 = (1 << OCIE3A);//ETIMSK = (1 << OCIE3A);
+  DDRCH1 = 0xFF;   // CH1 output
+  DDRCH2 = 0xFF;   // CH2 output
+  usart_setup(9600, bits8, parityNone, stop1);
 }
 
-ISR(TIMER1_COMPA_vect) // Přerušení vyvolané TIMER1
+//-------Timer-------
+
+void SetupTimer(void)
 {
-  CH1 = values[0][step_ch1];
-  step_ch1++;
-  if (step_ch1 >= max_amp)
-	  step_ch1 = 0;
+ TCCR1A = 0;
+ TCCR1B = (1 << WGM12) | (1 << CS10); // CTC, prescaler 1
+ OCR1A = 16000000 / 40000 - 1;
+ TIMSK1 = (1 << OCIE1A);
 }
-ISR(TIMER3_COMPA_vect) // Přerušení vyvolané TIMER3
+
+//-------Interrupt-------
+
+ISR(TIMER1_COMPA_vect)
 {
-  CH2 = values[2][step_ch2];
-  step_ch2++;
-  if (step_ch2 >= max_amp)
-	  step_ch2 = 0;
+ phase_ch1 += word_ch1;
+ phase_ch2 += word_ch2;
+ 
+ CH1 = table1[phase_ch1 >> 8]; // Using phase_ch as an index after trimming the lower 8 bits
+ CH2 = table2[phase_ch2 >> 8];
 }
-uint8_t Amp(int amp)
+
+uint8_t ConvertAmp(float amp)
 {
-  if ((float)(amp) / 1000.0 > (float)max_amp / 51.0)   // 4500 [mV] / 1000 -> 4.5[V] > 4V
-    amp = (float)max_amp * 1000.0 / 51.0;                // 204 000 / 51 -> 4000[mV]
+  if (amp > max_amp)
+    amp = max_amp;
   else if (amp < 0)
     amp = 0;
 
-  return (float)amp / 1000.0 * 51.0; // převedení z mV na V a potom na 8bitovou hodnotu (0 - 204)
+  return amp / 1000.0 * 51.0; // Conversion according to the constant 51 = 1V
 }
 
-float Period(float freq)
+void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float freq)
 {
-  return 1.0 / freq; // f -> T 
-}
+  amp = ConvertAmp(amp); // Conversion of voltage to a value suitable for writing to the port
+  *word_ch = round(word_hz * freq);  // Setting the word to add to phase_ch according to frequency
+  float half_amp = amp / 2.0; // Half of the given amplitude for the sine wave
+  float angle = 6.28318531 / 255.0;  // Angle for the sine wave
 
-void SetupValues()
-{
-  for (uint8_t i = 0; i < max_amp; i++)  // SQR
+  for (uint16_t i = 0; i < 256; i++)
   {
-    if (i < 102)
-      values[0][i] = amp_dac;
-    else
-      values[0][i] = 0; 
-  }
-  for (uint8_t i = 0; i < max_amp; i++) // SAW
-  {
-    values[1][i] = i;
-  }
-  for (uint8_t i = 0; i <= max_amp / 2; i++) // TRI
-  {
-	values[2][i] = i * 2;
-  }
-  for (uint8_t i = max_amp / 2; i < max_amp; i++)
-  {
-	values[2][i] = values[2][max_amp - i];
-  }
-  for (uint8_t i = 0; i < max_amp; i++)  // SIN
-  {
-    float angle = 6.28318531 * ((float)i / amp_dac);
-    values[3][i] = round((float)amp_dac / 2.0 * sin(angle) + (float)amp_dac / 2.0);
+    values[0][i] = (i < 128) ? amp : 0;                                   // SQR - 0
+
+	values[1][i] = (i * amp) / 255;                                       // SAW - 1
+	
+	values[2][i] = (i < 128) ? (i * amp) / 127 : ((255 - i) * amp) / 128; // TRI - 2
+
+    values[3][i] = round(half_amp * sin(i * angle) + half_amp);           // SIN - 3
   }
 }
 
-void Off()
+void ProcessUSART(void) // Processing the command via USART
 {
-  CH1 = 0x00;
-  CH2 = 0x00;
+  char *channel  = strtok(string, ":"); // Seperating the parameters 
+  char *wave     = strtok(NULL, ":");
+  char *str_amp  = strtok(NULL, ":");
+  char *str_freq = strtok(NULL, ":");
+
+  if (strcmp(channel, "HELP") == 0)
+  {
+    if (strcmp(wave, "channel") == 0)
+      printf("CH1, CH2\r\n");
+    else if (strcmp(wave, "wave") == 0)
+      printf("SQR, SAW, TRI, SIN\r\n");
+    else if (strcmp(wave, "mV") == 0)
+      printf("0-4000\r\n");
+    else if (strcmp(wave, "Hz") == 0)
+      printf("0-5000\r\n");
+    else if (strcmp(wave, "format") == 0)
+	  printf("channel:wave:mV:Hz!\r\n");
+	else
+      printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n");
+    return;
+  }
+
+  if (channel == NULL || wave == NULL || str_amp == NULL || str_freq == NULL)
+  {
+    printf("Missing parameter! Try HELP :)\r\n");
+    return;
+  }
+	
+  float amp  = atoi(str_amp);  // Conversion from string to number
+  float freq = atoi(str_freq);
+
+  uint8_t wave_index = 0;
+  if (strcmp(wave, "SQR") == 0)
+    wave_index = 0;
+  else if (strcmp(wave, "SAW") == 0)
+    wave_index = 1;
+  else if (strcmp(wave, "TRI") == 0)
+    wave_index = 2;
+  else if (strcmp(wave, "SIN") == 0)
+    wave_index = 3;
+  else
+  {
+	printf("Wave does not exist! Try HELP :)\r\n");
+  	return;
+  }
+
+  if (strcmp(channel, "CH1") == 0) // Adjusting values in tables according to the channel and processed parameters
+  {
+    UpdateTable(values1, amp, &word_ch1, freq);
+    table1 = values1[wave_index];
+  }
+  else if (strcmp(channel, "CH2") == 0)
+  {
+    UpdateTable(values2, amp, &word_ch2, freq);
+    table2 = values2[wave_index]; 
+  }
+  else
+  {
+    printf("Channel does not exist! Try HELP :)\r\n");
+  }
 }
 
 //-------Main-------
- 
 
-
-int main()
+int main(void)
 {
   Setup(); // Setup AVR PORT
   SetupTimer();
-  SetupValues();
   sei();
+  char znak;
 
-  while(true)
+  printf("Type HELP or enter a command in the format: channel:wave:mV:Hz!\r\n");
+
+  while(1)
   {
-   // Vymyslet ten usart
-   // DDS?
-   // 
+	  if (usart_dataready())
+	  {
+	    znak = usart_getchar();
+	    if (znak == '\r' || znak == '\n')
+	    {
+	      if (index == 0)
+		      continue;
+        string[index] = '\0';
+        ProcessUSART();
+		index = 0;
+	    }
+	    else
+	    {
+	      if (index < 19)
+		    {
+		      string[index] = znak;
+		      index++;
+	      }
+	    }
+	  }
   }
-
-  
   return 0;
 }
+
