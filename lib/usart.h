@@ -11,7 +11,7 @@
 #define USART_STDIO
 // set usart number on multi-usart MCUs. Leave empty when only single usart is available on target MCU
 #ifndef USART_NO
-  #define USART_NO 0
+  #define USART_NO 1
 #endif
 
 #include <avr/pgmspace.h>
@@ -80,4 +80,5 @@ int usart_sgetchar(FILE *stream);
 
 #ifdef __cplusplus
   } // extern C wrapper
+
 #endif
