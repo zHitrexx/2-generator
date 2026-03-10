@@ -8,29 +8,29 @@
 #include "src/usart.h"
 
 #define DDRCH1 DDRK
-#define DDRCH2 DDRB // DDRB
+#define DDRCH2 DDRF
 #define CH1 PORTK
-#define CH2 PORTB // PORTB
+#define CH2 PORTF
 
 uint8_t values1[4][256];
 uint8_t values2[4][256];
 char string[20];
 uint8_t index = 0;
-const uint8_t max_amp = 204;
-const uint32_t word_hz = 107374; // 1 Hz // 214748 -> 20 kHz base
-volatile uint32_t phase_ch1 = 0;
-volatile uint32_t phase_ch2 = 0;
-volatile uint32_t word_ch1 = 0;
-volatile uint32_t word_ch2 = 0;
-volatile uint8_t* table1 = values1[0];
-volatile uint8_t* table2 = values2[3];
+const float max_amp = 4000;
+const float word_hz = 65536.0 / 40000.0; // 1 Hz
+volatile uint16_t phase_ch1 = 0;
+volatile uint16_t phase_ch2 = 0;
+uint16_t word_ch1 = 0;
+uint16_t word_ch2 = 0;
+uint8_t* table1 = values1[0];
+uint8_t* table2 = values2[3];
 
 //-------Setup-------
 
 void Setup(void)
 {
-  DDRCH1 = 0xFF;   // CH1 výstup
-  DDRCH2 = 0xFF;   // CH2 výstup
+  DDRCH1 = 0xFF;   // CH1 output
+  DDRCH2 = 0xFF;   // CH2 output
   usart_setup(9600, bits8, parityNone, stop1);
 }
 
@@ -39,9 +39,9 @@ void Setup(void)
 void SetupTimer(void)
 {
  TCCR1A = 0;
- TCCR1B = (1 << WGM12) | (1 << CS10);
- OCR1A = 16000000 / 40000 - 1; // 147456MHz / 40 000 - 1 (20 000 když by to dělalo brikule ale zdvojnásobit word_hz)
- TIMSK1 = (1 << OCIE1A); // TIMSK = (1 << OCIE1A);
+ TCCR1B = (1 << WGM12) | (1 << CS10); // CTC, prescaler 1
+ OCR1A = 16000000 / 40000 - 1;
+ TIMSK1 = (1 << OCIE1A);
 }
 
 //-------Interrupt-------
@@ -51,51 +51,42 @@ ISR(TIMER1_COMPA_vect)
  phase_ch1 += word_ch1;
  phase_ch2 += word_ch2;
  
- CH1 = table1[phase_ch1 >> 24];
- CH2 = table2[phase_ch2 >> 24];
+ CH1 = table1[phase_ch1 >> 8]; // Using phase_ch as an index after trimming the lower 8 bits
+ CH2 = table2[phase_ch2 >> 8];
 }
 
-uint8_t Amp(float amp)
+uint8_t ConvertAmp(float amp)
 {
-  if (amp / 1000.0 > max_amp / 51)
-    amp = (float)max_amp * 1000.0 / 51.0;
+  if (amp > max_amp)
+    amp = max_amp;
   else if (amp < 0)
     amp = 0;
 
-  return (float)amp / 1000.0 * 51.0;
+  return amp / 1000.0 * 51.0; // Conversion according to the constant 51 = 1V
 }
 
-void UpdateTable(uint8_t (*values)[256], uint8_t amp, uint32_t *word_ch, float freq)
+void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float freq)
 {
-  *word_ch = word_hz * freq;
-  float half_amp = (float)amp / 2.0;
-  float angle = 6.28318531 / 255.0; 
+  amp = ConvertAmp(amp); // Conversion of voltage to a value suitable for writing to the port
+  *word_ch = round(word_hz * freq);  // Setting the word to add to phase_ch according to frequency
+  float half_amp = amp / 2.0; // Half of the given amplitude for the sine wave
+  float angle = 6.28318531 / 255.0;  // Angle for the sine wave
 
   for (uint16_t i = 0; i < 256; i++)
   {
-	// SQR
-    if (i < 128)
-      values[0][i] = amp;
-    else
-      values[0][i] = 0; 
-			
-	// SAW
-	values[1][i] = (i * amp) / 255;
+    values[0][i] = (i < 128) ? amp : 0;                                   // SQR - 0
+
+	  values[1][i] = (i * amp) / 255;                                       // SAW - 1
 	
-	// TRI
-	if (i < 128) 
-	  values[2][i] = (i * amp) / 127;
-	else
-	  values[2][i] = ((255 - i) * amp) / 128;
-	
-	// SIN
-    values[3][i] = round(half_amp * sin(i * angle) + half_amp);
+	  values[2][i] = (i < 128) ? (i * amp) / 127 : ((255 - i) * amp) / 128; // TRI - 2
+
+    values[3][i] = round(half_amp * sin(i * angle) + half_amp);           // SIN - 3
   }
 }
 
-void ProcessUSART(void) // Zpracování příkazu přes USART
+void ProcessUSART(void) // Processing the command via USART
 {
-  char *channel  = strtok(string, ":"); // Rozklad na části
+  char *channel  = strtok(string, ":"); // Seperating the parameters 
   char *wave     = strtok(NULL, ":");
   char *str_amp  = strtok(NULL, ":");
   char *str_freq = strtok(NULL, ":");
@@ -104,19 +95,26 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
   {
     if (strcmp(wave, "channel") == 0)
       printf("CH1, CH2\r\n");
-    if (strcmp(wave, "wave") == 0)
+    else if (strcmp(wave, "wave") == 0)
       printf("SQR, SAW, TRI, SIN\r\n");
-    if (strcmp(wave, "mV") == 0)
+    else if (strcmp(wave, "mV") == 0)
       printf("0-4000\r\n");
-    if (strcmp(wave, "Hz") == 0)
+    else if (strcmp(wave, "Hz") == 0)
       printf("0-5000\r\n");
+    else if (strcmp(wave, "format") == 0)
+	  printf("channel:wave:mV:Hz!\r\n");
+	else
+      printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n");
     return;
   }
 
   if (channel == NULL || wave == NULL || str_amp == NULL || str_freq == NULL)
-	return;
-  
-  float amp = atoi(str_amp); // Převod na číslo
+  {
+    printf("Missing parameter! Try HELP :)\r\n");
+    return;
+  }
+	
+  float amp  = atoi(str_amp);  // Conversion from string to number
   float freq = atoi(str_freq);
 
   uint8_t wave_index = 0;
@@ -130,59 +128,59 @@ void ProcessUSART(void) // Zpracování příkazu přes USART
     wave_index = 3;
   else
   {
-	printf("Spatny druh vlny! Zkus HELP\r\n");
+	printf("Wave does not exist! Try HELP :)\r\n");
   	return;
   }
 
-  if (strcmp(channel, "CH1") == 0) // Úprava hodnot v tabulkách podle kanálu 
+  if (strcmp(channel, "CH1") == 0) // Adjusting values in tables according to the channel and processed parameters
   {
-    UpdateTable(values1, Amp(amp), &word_ch1, freq);
+    UpdateTable(values1, amp, &word_ch1, freq);
     table1 = values1[wave_index];
   }
   else if (strcmp(channel, "CH2") == 0)
   {
-    UpdateTable(values2, Amp(amp), &word_ch2, freq);
+    UpdateTable(values2, amp, &word_ch2, freq);
     table2 = values2[wave_index]; 
   }
   else
   {
-    printf("Spatny kanal! Zkus HELP\r\n");
+    printf("Channel does not exist! Try HELP :)\r\n");
   }
 }
 
 //-------Main-------
 
-int main()
+int main(void)
 {
   Setup(); // Setup AVR PORT
   SetupTimer();
   sei();
   char znak;
 
-  printf("Zadej prikaz ve formatu: channel:wave:mV:Hz nebo HELP:parametr!\r\n");
+  printf("Type HELP or enter a command in the format: channel:wave:mV:Hz!\r\n");
 
   while(1)
   {
-	if (usart_dataready())
-	{
-	  znak = usart_getchar();
-	  if (znak == '\r' || znak == '\n')
+	  if (usart_dataready())
 	  {
-	    if (index == 0)
-		  continue;
+	    znak = usart_getchar();
+	    if (znak == '\r' || znak == '\n')
+	    {
+	      if (index == 0)
+		      continue;
         string[index] = '\0';
         ProcessUSART();
-		index = 0;
-	  }
-	  else
-	  {
-	    if (index < 19)
-		{
-		  string[index] = znak;
-		  index++;
+		    index = 0;
+	    }
+	    else
+	    {
+	      if (index < 19)
+		    {
+		      string[index] = znak;
+		      index++;
+	      }
 	    }
 	  }
-	}
   }
   return 0;
 }
