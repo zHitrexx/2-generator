@@ -1,4 +1,4 @@
-#define F_CPU 16000000UL //14745600UL
+#define F_CPU 16000000UL
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -76,9 +76,9 @@ void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float fre
   {
     values[0][i] = (i < 128) ? amp : 0;                                   // SQR - 0
 
-	  values[1][i] = (i * amp) / 255;                                       // SAW - 1
+	values[1][i] = (i * amp) / 255;                                       // SAW - 1
 	
-	  values[2][i] = (i < 128) ? (i * amp) / 127 : ((255 - i) * amp) / 128; // TRI - 2
+	values[2][i] = (i < 128) ? (i * amp) / 127 : ((255 - i) * amp) / 128; // TRI - 2
 
     values[3][i] = round(half_amp * sin(i * angle) + half_amp);           // SIN - 3
   }
@@ -170,7 +170,7 @@ int main(void)
 		      continue;
         string[index] = '\0';
         ProcessUSART();
-		    index = 0;
+		index = 0;
 	    }
 	    else
 	    {
@@ -184,3 +184,4 @@ int main(void)
   }
   return 0;
 }
+
