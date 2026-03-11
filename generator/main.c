@@ -68,7 +68,6 @@ uint8_t ConvertAmp(float amp)
 void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float freq)
 {
   amp = ConvertAmp(amp); // Conversion of voltage to a value suitable for writing to the port
-  *word_ch = round(word_hz * freq);  // Setting the word to add to phase_ch according to frequency
   float half_amp = amp / 2.0; // Half of the given amplitude for the sine wave
   float angle = 6.28318531 / 255.0;  // Angle for the sine wave
 
@@ -82,6 +81,11 @@ void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float fre
 
     values[3][i] = round(half_amp * sin(i * angle) + half_amp);           // SIN - 3
   }
+}
+
+void UpdateWord(uint16_t *word_ch, float freq)
+{
+  *word_ch = round(word_hz * freq);  // Setting the word to add to phase_ch according to the given frequency
 }
 
 void ProcessUSART(void) // Processing the command via USART
@@ -134,12 +138,14 @@ void ProcessUSART(void) // Processing the command via USART
 
   if (strcmp(channel, "CH1") == 0) // Adjusting values in tables according to the channel and processed parameters
   {
-    UpdateTable(values1, amp, &word_ch1, freq);
+    UpdateTable(values1, amp);
+    UpdateWord(&word_ch1, freq);
     table1 = values1[wave_index];
   }
   else if (strcmp(channel, "CH2") == 0)
   {
-    UpdateTable(values2, amp, &word_ch2, freq);
+    UpdateTable(values2, amp);
+	UpdateWord(&word_ch2, freq);
     table2 = values2[wave_index]; 
   }
   else
