@@ -65,7 +65,7 @@ uint8_t ConvertAmp(float amp)
   return amp / 1000.0 * 51.0; // Conversion according to the constant 51 = 1V
 }
 
-void UpdateTable(uint8_t (*values)[256], float amp, uint16_t *word_ch, float freq)
+void UpdateTable(uint8_t (*values)[256], float amp)
 {
   amp = ConvertAmp(amp); // Conversion of voltage to a value suitable for writing to the port
   float half_amp = amp / 2.0; // Half of the given amplitude for the sine wave
@@ -190,4 +190,5 @@ int main(void)
   }
   return 0;
 }
+
 
