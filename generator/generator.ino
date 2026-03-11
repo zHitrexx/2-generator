@@ -12,12 +12,15 @@
 #define CH1 PORTK
 #define CH2 PORTF
 
+const float PI = 3.141592
+const float f_clk = 40000;
+const float max_amp = 4000;
+const float word_hz = 65536.0 / f_clk; // 1 Hz
+
 uint8_t values1[4][256];
 uint8_t values2[4][256];
 char string[20];
 uint8_t index = 0;
-const float max_amp = 4000;
-const float word_hz = 65536.0 / 40000.0; // 1 Hz
 volatile uint16_t phase_ch1 = 0;
 volatile uint16_t phase_ch2 = 0;
 uint16_t word_ch1 = 0;
@@ -40,7 +43,7 @@ void SetupTimer(void)
 {
  TCCR1A = 0;
  TCCR1B = (1 << WGM12) | (1 << CS10); // CTC, prescaler 1
- OCR1A = 16000000 / 40000 - 1;
+ OCR1A = F_CPU / f_clk - 1;
  TIMSK1 = (1 << OCIE1A);
 }
 
@@ -69,7 +72,7 @@ void UpdateTable(uint8_t (*values)[256], float amp)
 {
   amp = ConvertAmp(amp); // Conversion of voltage to a value suitable for writing to the port
   float half_amp = amp / 2.0; // Half of the given amplitude for the sine wave
-  float angle = 6.28318531 / 255.0;  // Angle for the sine wave
+  float angle = (2 * PI) / 256.0;  // Angle for the sine wave
 
   for (uint16_t i = 0; i < 256; i++)
   {
@@ -190,6 +193,7 @@ int main(void)
   }
   return 0;
 }
+
 
 
 
