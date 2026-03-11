@@ -100,7 +100,9 @@ void ProcessUSART(void) // Processing the command via USART
 
   if (strcmp(channel, "HELP") == 0)
   {
-    if (strcmp(wave, "channel") == 0)
+    if (wave == NULL)
+      printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n")
+    else if (strcmp(wave, "channel") == 0)
       printf("CH1, CH2\r\n");
     else if (strcmp(wave, "wave") == 0)
       printf("SQR, SAW, TRI, SIN\r\n");
@@ -110,7 +112,7 @@ void ProcessUSART(void) // Processing the command via USART
       printf("0-5000\r\n");
     else if (strcmp(wave, "format") == 0)
 	  printf("channel:wave:mV:Hz!\r\n");
-	else
+	  else
       printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n");
     return;
   }
@@ -193,6 +195,7 @@ int main(void)
   }
   return 0;
 }
+
 
 
 
