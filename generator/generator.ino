@@ -23,7 +23,7 @@ volatile uint16_t phase_ch2 = 0;
 uint16_t word_ch1 = 0;
 uint16_t word_ch2 = 0;
 uint8_t *table1 = values1[0];
-uint8_t *table2 = values2[3];
+uint8_t *table2 = values2[0];
 
 //-------Setup-------
 
@@ -190,6 +190,7 @@ int main(void)
   }
   return 0;
 }
+
 
 
 
