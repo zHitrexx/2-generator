@@ -101,7 +101,7 @@ void ProcessUSART(void) // Processing the command via USART
   if (strcmp(channel, "HELP") == 0)
   {
     if (wave == NULL)
-      printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n")
+      printf("HELP:channel | HELP:wave | HELP:mV | HELP:freq | HELP:format\r\n");
     else if (strcmp(wave, "channel") == 0)
       printf("CH1, CH2\r\n");
     else if (strcmp(wave, "wave") == 0)
@@ -195,4 +195,5 @@ int main(void)
   }
   return 0;
 }
+
 
